@@ -4,9 +4,9 @@ KKM
 
 Contributors
 ------------
-Copyright (c) 2005, 2012
-Marat Khayrullin <xmm.dev@gmail.com>
-http://xmm.moikrug.ru/
+- Copyright (c) 2005, 2012
+- Marat Khayrullin <xmm.dev@gmail.com>
+- https://github.com/xmm/kkm/
 
 Introduction
 ------------
@@ -18,7 +18,7 @@ PayVKP-80K от Paykiosk.ru
 
 Requirements
 ------------
-Для работы необходим модуль serial 
+Для работы необходим модуль serial.  
 Под win32 последний раз проверялся в 2005,
 под Linux работает сейчас - ноябрь 2012. 
 
@@ -37,7 +37,7 @@ Requirements
 
 License
 -------
-Начиная с версии 2.0.pre1 эта библиотека распространяется под лицензией Apache-2.0.
-Подробности в файле LICENSE. 
+Начиная с версии 2.0.pre1 (опубликованной на https://github.com/xmm/kkm/)
+эта библиотека распространяется под лицензией Apache-2.0. Подробности в файле LICENSE. 
 Предыдущая версия, расположенная по адресу http://code.google.com/p/kkm/ 
 распространялась под лицензией GPL-2.
