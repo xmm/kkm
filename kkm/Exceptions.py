@@ -1,6 +1,8 @@
-# -*- coding: UTF-8 -*-
-# Copyright (c) 2005, 2012
-# Marat Khayrullin <xmm.dev@gmail.com>
+# -*- coding: utf-8 -*-
+'''
+Copyright (c) 2005,2007
+@author: Marat Khayrullin <xmm.dev@gmail.com>
+'''
 
 kkmCommonError            = 1
 kkmUnknownError           = 2
@@ -22,6 +24,7 @@ kkmLowPaymentError        = 17
 kkmFiscalMemoryOverflowError = 18
 kkmIncorectModeError      = 19
 kkmReportError            = 20
+kkmNeedZReportError      = 21
 
 
 class KKMException(Exception):
@@ -170,3 +173,8 @@ class KKMNoDeviceErr(KKMException):
 class KKMReportErr(KKMException):
     _stdMsg = u'Снятие отчета прервалось'
     _stdCode = kkmReportError
+
+
+class KKMNeedZReportErr(KKMException):
+    _stdMsg = u'Смена превысила 24 часа'
+    _stdCode = kkmNeedZReportError

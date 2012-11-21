@@ -1,24 +1,30 @@
-# -*- coding: UTF-8 -*-
-# Copyright (c) 2005, 2012
-# Marat Khayrullin <xmm.dev@gmail.com>
+# -*- coding: utf-8 -*-
+'''
+ Copyright (c) 2005, 2012
+ @author: Marat Khayrullin <xmm.dev@gmail.com>
+'''
 
-#
-# Использованные документы:
-# <1>: Атол технологии
-#       Руководство программиста: Протокол работы ККМ v2.4
-# <2>: Атол технологии
-#       Руководство программиста: Общий драйвер ККМ v.5.1
-#       (версия док-ции: 1.7 от 15.05.2002)
-# <3>: Курское ОАО "Счетмаш"
-#       Инструкция по программированию РЮИБ.466453.528 И15
-#       Машина электронная контрольно-кассовая Феликс-Р Ф
-#
+'''
+ Использованные документы:
+ <1>: Атол технологии
+       Руководство программиста: Протокол работы ККМ v2.4
+ <2>: Атол технологии
+       Руководство программиста: Общий драйвер ККМ v.5.1
+       (версия док-ции: 1.7 от 15.05.2002)
+ <3>: Курское ОАО "Счетмаш"
+       Инструкция по программированию РЮИБ.466453.528 И15
+       Машина электронная контрольно-кассовая Феликс-Р Ф
+<4>: Атол технологии
+       Приложение к протоколу работы ККМ (2009)
+'''
 
-import string
 import kkm
 from transCoding import cp866 as codeset
-from Exception import *
+from Exceptions import *
 
+from decimal import Decimal
+import string
+import time
 import logging
 logger = logging.getLogger('kkm')
 
@@ -73,6 +79,8 @@ _atol_ZReport_cmd         = 'Z'
 _atol_CommonClear_cmd     = 'w'
 _atol_ReadTable_cmd       = 'F'
 _atol_Programming_cmd     = 'P'
+_atol_ZReportToMem_cmd    = '\xB4'
+_atol_ZReportFromMem_cmd  = '\xB5'
 
 _atol_Select_mode         = 0
 _atol_Registration_mode   = 1
@@ -107,7 +115,7 @@ _atol_type4_payment = 4  # пл. картой
 _modelTable = {
     '1.14': (u'Феликс-Р Ф', 1, 14, 2, 3, 2185, 20, 20, 8),
     '1.24': (u'Феликс-Р К', 1, 24, 2, 4, 3700, 38, 38, 8),
-    '1.41': (u'PayVKP-80K', 1, 24, 2, 4, 3700, 38, 38, 8),
+    '1.41': (u'PayVKP-80K', 1, 24, 2, 4, 3700, 42, 42, 8),
     }
 _atol_StringMax_idx = 6
 _atol_KlisheLen_idx = 7
@@ -130,7 +138,7 @@ exceptionTable = {
     123: KKMCommonErr(u'Неверная величина скидки / надбавки'),
     127: KKMCommonErr(u'Переполнение при умножении'),
     134: KKMLowPaymentErr,
-    136: KKMCommonErr(u'Смена превысила 24 часа'),
+    136: KKMNeedZReportErr,
     140: KKMCommonErr(u'Неверный пароль'),
     143: KKMCommonErr(u'Обнуленная касса (повторное гашение не возможно)'),
     151: KKMCommonErr(u'Подсчет суммы сдачи не возможен'),
@@ -139,6 +147,7 @@ exceptionTable = {
     156: KKMCommonErr(u'Смена открыта - операция невозможна'),
     190: KKMCommonErr(u'Необходимо провести профилактические работы'),
     201: KKMCommonErr(u'Нет связи с внешним устройством'),
+    209: KKMCommonErr(u'Перегрев головки принтера'),
     210: KKMCommonErr(u'Ошибка обмена с ЭКЛЗ на уровне интерфейса I2O')
 }
 
@@ -159,11 +168,11 @@ def checkException(ans):
 def raiseException(code):
     if (code != 0):
         try:
-            logger.error(str(exceptionTable[code]))
+            logger.error(unicode(exceptionTable[code]))
             raise exceptionTable[code]
         except KeyError:
-            logger.error(str(KKMUnknownErr(u'Неизвестный код ошибки: %d' %code)))
-            raise KKMUnknownErr(u'Неизвестный код ошибки: %d' %code)
+            logger.error(unicode(KKMUnknownErr(u'Неизвестный код ошибки: %d' % code)))
+            raise KKMUnknownErr(u'Неизвестный код ошибки: %d' % code)
 
 
 def _escaping(data):
@@ -209,9 +218,7 @@ class AtolKKM(kkm.KKM):
         self.__flags       = _atol_CheckCash_flag  # Флаги режима регистрации
         self._kkmPassword = self.number2atol(password, 4)
         kkm.KKM.__init__(self, device, self._kkmPassword)
-        print 111
         typeDev = self.GetTypeDevice()
-        print 'Device: %s' % (str(typeDev))
         self.model = model = str(ord(typeDev['type'])) + '.' + str(ord(typeDev['model']))
         if model not in _modelTable:
             raise KKMUnknownModelErr
@@ -223,10 +230,8 @@ class AtolKKM(kkm.KKM):
         import serial
         # Проверить наличие блокировки устройства
         # Заблокировать или вывалиться с ошибкой
-        print 'OpenDevice...'
         try:
             self._kkm = serial.Serial(**self._device)
-            print 'serial...'
         except:
             raise KKMCommonErr(u'System error at opening KKM device')
         if (not self._kkm):
@@ -238,25 +243,19 @@ class AtolKKM(kkm.KKM):
     def _atol_send_data(self, data):
         kkm = self._kkm
 
-        print "data: %s" % (data), len(data)
         logger.debug('data: %s len: %d', data, len(data))
         data = _escaping(data) + _atol_ETX
         crc = _calc_crc(data)
         data = _atol_STX + data + chr(crc)   # Есть ли у Феликса max длина буфера?
-        print "escaped: %s crc:%d" % (data, crc), len(data)
         logger.debug('escaped data: %s len: %d crc: %d', data, len(data), crc)
 
         try:
             ### Активный передатчик #######################
             for i in range(_atol_CON_attempt):
                 for j in range(_atol_ENQ_attempt):
-                    print 'write1'
                     kkm.write(_atol_ENQ)
-                    print 'writed1'
                     self._set_readtimeout(_atol_T1_timeout)
-                    print 'read1'
                     ch = kkm.read(1)
-                    print "1[%s] i=%d j=%d" % (ch, i, j)
                     if (ch == _atol_NAK):
                         time.sleep(_atol_T1_timeout * 0.1)  # Перевести в секунды
                     elif (ch == _atol_ENQ):
@@ -367,14 +366,16 @@ class AtolKKM(kkm.KKM):
                     else:
                         break
             kkm.write(_atol_EOT)
+        except OSError:  # for Linux
+            import sys
+            exc = sys.exc_info()
+            if exc[1].errno == 19:
+                logger.error(str(KKMNoDeviceErr))
+                raise KKMNoDeviceErr
+            else:
+                logger.error(str(KKMConnectionErr))
+                raise KKMConnectionErr
         except Exception:  # win32file raise common exception, not OSError as Linux
-        #except OSError:  #
-            #import sys
-            #exc = sys.exc_info()
-            #if exc[1].errno == 19:
-            #    raise KKMNoDeviceErr
-            #else:
-            #    raise KKMConnectionErr
             logger.error(str(KKMConnectionErr))
             raise KKMConnectionErr
         logger.error(str(KKMConnectionErr))
@@ -385,7 +386,7 @@ class AtolKKM(kkm.KKM):
 
         C локализацией и дополнением пробелами до значения length.
         """
-        txt = codeset.translateFrom(txt)
+        txt = unicode(txt).encode('cp866')
         ctrlNum = 0
         for c in txt:
             if c < ' ':
@@ -397,7 +398,7 @@ class AtolKKM(kkm.KKM):
 
     def atol2str(self, txt):
         """Преобразование строки из формата ккм (локализация)."""
-        return codeset.translateTo(txt)
+        return txt.decode('cp866')
 
     def number2atol(self, number, width=2):
         """Преобразование числа в формат ккм.
@@ -436,7 +437,7 @@ class AtolKKM(kkm.KKM):
         return long(val)
 
     def money2atol(self, money, width=None):
-        """Преобразование денежной суммы в формат ккм (МДЕ).
+        """Преобразование денежной суммы (decimal) в формат ккм (МДЕ).
 
         ширина в знаках, а не в байтах!!!
         <1>стр.17"""
@@ -445,25 +446,17 @@ class AtolKKM(kkm.KKM):
         elif (width > self._moneyWidth):
             logger.error(str(KKMWrongMoneyErr(u'Затребована ширина превышающая максимально допустимое значение')))
             raise KKMWrongMoneyErr(u'Затребована ширина превышающая максимально допустимое значение')
-        money = round(money * self._moneyPrecision)  # Марсель! Округлять или срезать ???
+        money = round(money * self._moneyPrecision)
         if (money > self._moneyMax):
             logger.error(str(KKMWrongMoneyErr(u'Число типа "money" превышает максимально допустимое значение')))
             raise KKMWrongMoneyErr(u'Число типа "money" превышает максимально допустимое значение')
-        money = str(money)
-        dot = string.find(money, '.')
-        if (dot > 0):
-            money = money[0:dot]
-        else:
-            logger.critical(str(RuntimeError(u'Невозможное значение')))
-            raise RuntimeError(u'Невозможное значение')
-        # Для скорости можно сдублировать, иначе - лишнее преобразование
         return self.number2atol(long(money), width)
 
     def atol2money(self, money):
-        """Преобразование из формата ккм (МДЕ) в денежную сумму.
+        """Преобразование из формата ккм (МДЕ) в денежную сумму (decimal).
 
         <1>стр.17"""
-        return self.atol2number(money) / self._moneyPrecision
+        return Decimal(self.atol2number(money)) / self._moneyPrecision
 
     def quantity2atol(self, quantity, width=None):
         """Преобразование количества в формат ккм.
@@ -529,8 +522,8 @@ class AtolKKM(kkm.KKM):
                 raise KKMUnknownAnswerErr
             cashier = self.atol2number(ans[1])
             site = self.atol2number(ans[2])
-            date = self.date2atol(ans[3:6])
-            time = self.time2atol(ans[6:9])
+            date = self.atol2date(ans[3:6])
+            time = self.atol2time(ans[6:9])
             flags = ord(ans[9])
             mashine = self.atol2number(ans[10:14])
             model = ord(ans[14])
@@ -605,7 +598,7 @@ class AtolKKM(kkm.KKM):
                 raiseException(ord(ans[0]))
             error = ans[0]
             protocol = ans[1]
-            type = ans[2]
+            type_ = ans[2]
             model = ans[3]
             mode = (ord(ans[4]) << 8) | ord(ans[5])
             majorver = ord(ans[6])
@@ -618,7 +611,7 @@ class AtolKKM(kkm.KKM):
         #print 'XMM 5 GetTypeDev', {'error': error, 'protocol': protocol, 'type': type, 'model': model,
         #        'mode': mode, 'majorver': majorver, 'minorver': minorver,
         #        'codepage': codepage, 'build': build, 'name': name}
-        return {'error': error, 'protocol': protocol, 'type': type, 'model': model,
+        return {'error': error, 'protocol': protocol, 'type': type_, 'model': model,
                 'mode': mode, 'majorver': majorver, 'minorver': minorver,
                 'codepage': codepage, 'build': build, 'name': name}
 
@@ -695,15 +688,21 @@ class AtolKKM(kkm.KKM):
         except KeyError:
             raise KKMUnknownModelErr
 
-
     ### Общие команды
 
-    def PrintString(self, txt):
+    def PrintString(self, txt, wrap=False):
         """Печать строки на кассовой ленте"""
-        checkException(
-            self._atol_send_data(self._kkmPassword + _atol_PrintString_cmd + \
-                                 self.str2atol(txt, self.getStringMax()))
-            )
+        idx = 0
+        slen = len(txt)
+        smax = self.getStringMax()
+        while idx <= slen:
+            checkException(
+                self._atol_send_data(self._kkmPassword + _atol_PrintString_cmd + \
+                                     self.str2atol(txt[idx:idx + smax], smax))
+                )
+            idx += smax
+            if not wrap:
+                break
 
     def PrintToDisplay(self, txt):
         """Вывод сообщения на дисплей покупателя"""
@@ -734,18 +733,18 @@ class AtolKKM(kkm.KKM):
     def taraPayType( self ):   return _atol_type3_payment
     def cardPayType( self ):   return _atol_type4_payment
 
-    def CashIncome(self, sum):
+    def CashIncome(self, sum_):
         """Внесение денег."""
         checkException(
             self._atol_send_data(self._kkmPassword + _atol_CashIncom_cmd + \
-                            self.number2atol(self.getRegFlags()) + self.money2atol(sum))
+                            self.number2atol(self.getRegFlags()) + self.money2atol(sum_))
             )
 
-    def CashOutcome(self, sum):
+    def CashOutcome(self, sum_):
         """Выплата денег (инкасация)."""
         checkException(
             self._atol_send_data(self._kkmPassword + _atol_CashOutcom_cmd + \
-                            self.number2atol(self.getRegFlags()) + self.money2atol(sum))
+                            self.number2atol(self.getRegFlags()) + self.money2atol(sum_))
             )
 
     _checkTypeDict = {
@@ -770,10 +769,8 @@ class AtolKKM(kkm.KKM):
         Если режим PreTestMode включен - выполнить с проверкой возможности исполнения.
         <1>стр.35
         """
-        logger.debug('Sell ' + name + \
-                     '\n\t price: ' + str(price) + '\t' + self.money2atol(price) + \
-                     '\n\t quantity:' + str(quantity) + '\t' + self.quantity2atol(quantity) + \
-                     '\n\t department:' + str(department) + '\t' + self.number2atol(department))
+        logger.info('Sell %s, price: %s, quantity: %s, department: %s' % (
+                    name, price, quantity, department))
         if (self.isPreTestMode() or self.isTestOnlyMode()):
             checkException(
                 self._atol_send_data(self._kkmPassword + _atol_Sell_cmd + \
@@ -813,21 +810,21 @@ class AtolKKM(kkm.KKM):
             )
 
     def Discount(self, count, area=kkm.kkm_Sell_dis, \
-                  type=kkm.kkm_Sum_dis, sign=kkm.kkm_Discount_dis):
+                  type_=kkm.kkm_Sum_dis, sign=kkm.kkm_Discount_dis):
         """Начисление скидки/надбавки.
 
         <1>стр.37
         """
-        logger.debug('Discount : ' + str(count) + '\t' + self.number2atol(count))
+        logger.info('Discount : ' + str(count) + '\t' + self.number2atol(count))
         if (area == kkm.kkm_Sell_dis):
             area = 1
         else:
             area = 0
-        if (type == kkm.kkm_Procent_dis):
-            type = 0
+        if (type_ == kkm.kkm_Procent_dis):
+            type_ = 0
             count = self.number2atol(count * 100, 5)  # 100.00%
         else:
-            type = 1
+            type_ = 1
             count = self.money2atol(count)
         if (sign == kkm.kkm_Discount_dis):
             sign = 0
@@ -847,18 +844,18 @@ class AtolKKM(kkm.KKM):
             self._atol_send_data(self._kkmPassword + _atol_Annulate_cmd)
             )
 
-    def Payment(self, sum, payType=None):
+    def Payment(self, sum_, payType=None):
         """Оплата чека с подсчетом суммы сдачи.
 
         <1>стр.38
         """
-        logger.debug('Payment : ' + str(sum) + '\t' + self.money2atol(sum))
+        logger.info('Payment : ' + str(sum_) + '\t' + self.money2atol(sum_))
         if (payType == None):
             payType = self.cashPayType()
         checkException(
             self._atol_send_data(self._kkmPassword + _atol_Payment_cmd + \
                                  self.number2atol(self.getRegFlags()) + \
-                                 self.number2atol(payType) + self.money2atol(sum))
+                                 self.number2atol(payType) + self.money2atol(sum_))
             )
 
     ### Команды режима отчетов без гашения
@@ -888,7 +885,6 @@ class AtolKKM(kkm.KKM):
     def ClearingReport(self):
         """
         """
-        import time
         checkException(
             self._atol_send_data(self._kkmPassword + _atol_ClearingReport_cmd)
             )
@@ -906,30 +902,54 @@ class AtolKKM(kkm.KKM):
             else:
                 raise KKMReportErr
 
+    def ZReportHold(self):
+        """Включить режим формирования отложенных Z отчётов.
+
+        Result: кол-во свободных полей для записи Z-отчётов
+        <4>стр.9
+        """
+        try:
+            return ord(checkException(
+                self._atol_send_data(self._kkmPassword + _atol_ZReportToMem_cmd)
+                )[2])
+        except IndexError:
+            raise KKMUnknownAnswerErr
+
+    def ZReportUnHold(self):
+        """Распечатать отложенные Z-отчёты и отключить режим отложенных Z отчётов.
+        """
+        checkException(
+            self._atol_send_data(self._kkmPassword + _atol_ZReportFromMem_cmd)
+            )
+
     def ZReport(self):
         """
         """
-        import time
         checkException(
             self._atol_send_data(self._kkmPassword + _atol_ZReport_cmd)
             )
         mode, submode, printer, paper = self.GetCurrentState()
-        #print mode, submode, printer, paper
+        print '00', mode, submode, printer, paper
         while (mode == 3 and submode == 2):
+            print '32-0'
             time.sleep(_atol_Report_timeout)
+            print '32-1'
             mode, submode, printer, paper = self.GetCurrentState()
-            #print mode, submode, printer, paper
+            print '32-2', mode, submode, printer, paper
         if (mode == 7 and submode == 1):
+            print '71-0'
             while (mode == 7 and submode == 1):
+                print '71-1'
                 time.sleep(_atol_Report_timeout)
+                print '71-2'
                 mode, submode, printer, paper = self.GetCurrentState()
-                #print mode, submode, printer, paper
+                print '71-3', mode, submode, printer, paper
             return
         else:
+            print '??', mode, submode, printer, paper
             if (mode == 3 and submode == 0):
-                return
-                #raise KKMFiscalMemoryOverflowErr
-            #print mode, submode, printer, paper
+                #return
+                raise KKMFiscalMemoryOverflowErr
             if (printer):
                 raise KKMPrinterConnectionErr
             if (paper):
@@ -940,7 +960,6 @@ class AtolKKM(kkm.KKM):
     def CommonClearing(self):
         """
         """
-        import time
         checkException(
             self._atol_send_data(self._kkmPassword + _atol_CommonClear_cmd)
             )
@@ -969,14 +988,14 @@ class AtolKKM(kkm.KKM):
         kkm.kkm_Quantity_report: (ReportWOClearing, 7)
         }
 
-    def Report(self, type):
+    def Report(self, type_):
         """
         """
         try:
-            if (self._reportTable[type][1] != None):
-                self._reportTable[type][0](self, self._reportTable[type][1])
+            if (self._reportTable[type_][1] != None):
+                self._reportTable[type_][0](self, self._reportTable[type_][1])
             else:
-                self._reportTable[type][0](self)
+                self._reportTable[type_][0](self)
         except KeyError:
             raise KKMReportErr(u'Неизвестный тип отчета')
 
@@ -993,14 +1012,27 @@ class AtolKKM(kkm.KKM):
         except IndexError:
             raise KKMUnknownAnswerErr
 
+    def _writeTable(self, table, row, field, value):
+        return checkException(
+            self._atol_send_data(self._kkmPassword + _atol_Programming_cmd + \
+                                 self.number2atol(table) + self.number2atol(row, 4) + \
+                                 self.number2atol(field) + value)
+            )
+
     _progTable = {  # (table,row,field,bitmask,type,length,{None|dict|func})
         'kkmNumber':          (2,1,1,None,'int',1,None),
         'multiDepart':        (2,1,2,None,'int',1,{'multi':0,'single':1}),
         'taxType':            (2,1,11,None,'int',1,{'deny':0,'all':1,'sell':2}),
         'departName':         (2,1,15,None,'int',1,{0:0,1:1}),
-        'printNotClearedSum': (2,1,18,0x3,'int',1,{0:0,1:1,2:3}),
-        'makeIncasation':     (2,1,18,0x4,'int',1,{0:0,1:1}),
+        'printNotClearedSum': (2,1,18,0b00000011,'bin',1,{False:0,'deny':0,'all':0b00000001,'last':0b00000011,True:0b11}),
+        'makeIncasation':     (2,1,18,0b00000100,'bin',1,{False:0,True:0b00000100}),
+        'extendedZreport':    (2,1,18,0b00001000,'bin',1,{False:0,True:0b00001000}),
+        'pushLength':         (2,1,22,0b00000111,'bin',1,None),  # 0..15
+        'onCutCheck':         (2,1,22,0b00110000,'bin',1,{'save':0,'push':0b010000,'drop':0b110000}),
+        'prevCheck':          (2,1,22,0b01000000,'bin',1,{'save':0,'drop':0b1000000}),
+        'startCheck':         (2,1,22,0b10000000,'bin',1,{'loop':0,'push':0b10000000}),
         'kkmPassword':        (2,1,23,None,'int',2,None),
+        'cutDocument':        (2,1,24,None,'int',1,{False:0,True:1}),
         'setPayCreditName':   (12,1,1,None,'string',10,None),
         'setPayTaraName':     (12,2,1,None,'string',10,None),
         'setPayCardName':     (12,3,1,None,'string',10,None)
@@ -1023,19 +1055,21 @@ class AtolKKM(kkm.KKM):
                 else:
                     raise KKMNotImplementedErr
                 if (bitmask != None):
-                    oldValue = self.atol2number(self.readTable(table, row, field))
+                    oldValue = ord(self.readTable(table, row, field))
+                    print 'P0 %s %s' % (oldValue, bin(oldValue))
+                    #oldValue = self.atol2number(oldValue)
+                    print 'P1 %s | (%s & ~%s), %s' % (bin(value), bin(oldValue), bin(bitmask), bin(oldValue & ~bitmask))
                     value |= (oldValue & ~bitmask)
-                if (rtype == 'string'):
+                    print 'P2', bin(value), chr(value), 'AA'
+                    value = chr(value)
+                    #value = self.number2atol(value, length * 2)
+                elif (rtype == 'string'):
                     value = self.str2atol(value, length)
                 elif (rtype == 'int'):
                     value = self.number2atol(value, length * 2)  # по 2 знака на байт!
                 else:
                     raise KKMNotImplementedErr
-                checkException(
-                    self._atol_send_data(self._kkmPassword + _atol_Programming_cmd + \
-                                         self.number2atol(table) + self.number2atol(row, 4) + \
-                                         self.number2atol(field) + value)
-                    )
+                self._writeTable(table, row, field, value)
         except KeyError:
             raise KKMNotImplementedErr
 

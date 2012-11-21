@@ -27,6 +27,7 @@ setup(
     keywords = 'фискальный, регистратор, контрольно, кассовая, машина, ккм',
     url = 'https://github.com/xmm/kkm/',
     long_description = readme,
-    install_requires = ['pySerial'],
+    include_package_data = True,
+    install_requires = ['pyserial',],
     scripts = [],
 )

@@ -1,6 +1,8 @@
-# -*- coding: UTF-8 -*-
-# Copyright (c) 2005,2007
-# Marat Khayrullin <xmm.dev@gmail.com>
+# -*- coding: utf-8 -*-
+'''
+Copyright (c) 2005,20012
+@author: Marat Khayrullin <xmm.dev@gmail.com>
+'''
 
 # ВНИМАНИЕ!
 # Этот файл НЕ ЯВЛЯЕТСЯ частью драйвера kkm, поэтому его НЕЛЬЗЯ использовать в проектах!
@@ -35,7 +37,7 @@
 
 # Продажа позиции (регистрация в ккм)
 
-    kkmDev.Sell(name.strip(), float(price.strip()), float(count.strip()), 0)
+    kkmDev.Sell(name.strip(), Decimal(price.strip()), Decimal(count.strip()), 0)
 
 
 # Проведение оплаты

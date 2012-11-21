@@ -1,6 +1,14 @@
-# -*- coding: UTF-8 -*-
-# Copyright (c) 2005, 2012
-# Marat Khayrullin <xmm.dev@gmail.com>
+# -*- coding: utf-8 -*-
+'''
+ Copyright (c) 2005, 2012
+ @author: Marat Khayrullin <xmm.dev@gmail.com>
+'''
+
+from Exceptions import KKMCommonErr, KKMException
+
+import os
+import logging
+logger = logging.getLogger('kkm')
 
 # Возможные значения переменной checkType в методе OpenCheck
 kkm_Sell_check          = 0
@@ -29,9 +37,6 @@ kkm_Goods_report      = 6
 kkm_Hour_report       = 7
 kkm_Quantity_report   = 8
 
-import logging
-logger = logging.getLogger('kkm')
-
 
 class KkmMeta(type):
     __registry = {}
@@ -42,7 +47,6 @@ class KkmMeta(type):
             cls.__registry[name] = cls
 
     def autoCreate(cls, portParams=None, password=0):
-        import os, Exception
         if not portParams:
             if os.name == 'posix':
                 portParams = {'port': '/dev/kkm', 'baudrate': 9600}
@@ -50,15 +54,15 @@ class KkmMeta(type):
                 portParams = {'port': 2, 'baudrate': 9600}
             else:
                 logger.critical(u'Не поддерживаемая платформа')
-                raise Exception.KKMCommonErr(u'Не поддерживаемая платформа')
+                raise KKMCommonErr(u'Не поддерживаемая платформа')
         for kkm in cls.__registry.values():
             try:
                 print 'KkmMeta.autoCreate', kkm, portParams, password
                 return kkm(portParams, password)
-            except Exception.KKMException:
+            except KKMException:
                 pass
         logger.critical(u'Нет связи с ККМ или неизвестная модель ККМ')
-        raise Exception.KKMCommonErr(u'Нет связи с ККМ или неизвестная модель ККМ')
+        raise KKMCommonErr(u'Нет связи с ККМ или неизвестная модель ККМ')
     autoCreate = classmethod(autoCreate)
 
 
@@ -100,13 +104,17 @@ class KKM:
         atexit.register(self.CloseDevice)
 
     def OpenDevice(self): pass
+
     def CloseDevice(self):
-        import Exception
         try:
             self._kkm.close()
+            self._kkm = None
         except:
             logger.critical('Can\'t close KKM device.')
-            raise Exception.KKMCommonErr('Can\'t close KKM device.')
+            raise KKMCommonErr('Can\'t close KKM device.')
+
+    def isOpened(self):
+        return self._kkm != None
 
     def isRegistrationMode( self ): pass
     def isXReportMode( self ): pass

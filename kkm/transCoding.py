@@ -1,6 +1,8 @@
-# -*- coding: UTF-8 -*-
-# Copyright (c) 2005, 2012
-# Marat Khayrullin <xmm.dev@gmail.com>
+# -*- coding: utf-8 -*-
+'''
+Copyright (c) 2005,20012
+@author: Marat Khayrullin <xmm.dev@gmail.com>
+'''
 
 import locale
 import string
@@ -46,7 +48,7 @@ class translateMeta(type):
         dst = cls.getTableByAlias(dst)
         src = cls.getTableByAlias(src)
         assert dst or src
-        if src == dst:
+        if src == dst or not dst or not src:
             return txt
         else:
             return string.translate(txt, cls.getTransTable(src, dst))

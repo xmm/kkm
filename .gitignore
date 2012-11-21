@@ -1,0 +1,9 @@
+*.pyc
+*.*~
+#*#
+.pydevproject
+.project
+.settings
+build
+kkm.egg-info
+.pydevproject
