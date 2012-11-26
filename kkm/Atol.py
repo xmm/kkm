@@ -3,6 +3,7 @@
  Copyright (c) 2005, 2012
  @author: Marat Khayrullin <xmm.dev@gmail.com>
 '''
+import datetime
 
 '''
  Использованные документы:
@@ -43,12 +44,14 @@ _atol_ENQ_attempt  = 5    # Кол-во проверок готовности К
 _atol_ACK_attempt  = 10
 _atol_ACK_timeout  = 5    # Время ожидания между проверками готовности ККМ
 _atol_DLE_timeout  = 1    # Время ожидания ответа на DLE запрос (тек. статус)
-_atol_T1_timeout   = 5    # ?Стандартное время ожидания получения 1го байта
-_atol_T2_timeout   = 200  # Время ожидания состояния "Идет передача ответа"
-_atol_T3_timeout   = 5
-_atol_T4_timeout   = 5
-_atol_T5_timeout   = 200  # Время ожидания состояния "Готов к передаче ответа"
-_atol_T6_timeout   = 5
+_atol_T1_timeout   = 0.5  # ?Стандартное время ожидания получения 1го байта
+_atol_T2_timeout   = 20   # Время ожидания состояния "Идет передача ответа"
+_atol_T3_timeout   = 0.5
+_atol_T4_timeout   = 0.5
+_atol_T5_timeout   = 20   # Время ожидания состояния "Готов к передаче ответа"
+_atol_T6_timeout   = 0.5
+_atol_T7_timeout   = 0.5
+_atol_T8_timeout   = 1
 _atol_DAT_timeout  = 5
 _atol_STX_attempt  = 100  # Кол-во попыток прочитать STX байт
 
@@ -204,7 +207,7 @@ class AtolKKM(kkm.KKM):
     """Драйвер к ККМ с протоколом обмена компании 'Атол технологии'(версии. 2.4)
     """
 
-    def __init__(self, device, password):
+    def __init__(self, device, password=0):
         _passwordLen       = 4           # Длина пароля
         _moneyWidth        = 10          # Кол-во разрядов
         _quantityWidth     = 10          # Кол-во разрядов
@@ -252,17 +255,19 @@ class AtolKKM(kkm.KKM):
         try:
             ### Активный передатчик #######################
             for i in range(_atol_CON_attempt):
+                is_answered = False
                 for j in range(_atol_ENQ_attempt):
                     kkm.write(_atol_ENQ)
                     self._set_readtimeout(_atol_T1_timeout)
                     ch = kkm.read(1)
-                    if (ch == _atol_NAK):
-                        time.sleep(_atol_T1_timeout * 0.1)  # Перевести в секунды
-                    elif (ch == _atol_ENQ):
-                        time.sleep(_atol_T1_timeout * 0.1)  # Перевести в секунды
-                        break
-                    elif (ch == ''):
+                    if ch == '':
                         continue
+                    is_answered = True
+                    if (ch == _atol_NAK):
+                        time.sleep(_atol_T1_timeout)
+                    elif (ch == _atol_ENQ):
+                        time.sleep(_atol_T7_timeout)
+                        break
                     elif (ch == _atol_ACK):
                         for k in range(_atol_ACK_attempt):
                             kkm.write(data)
@@ -365,6 +370,11 @@ class AtolKKM(kkm.KKM):
                         raise KKMConnectionErr
                     else:
                         break
+                if not is_answered:
+                    kkm.write(_atol_EOT)
+                    logger.error(str(KKMConnectionErr))
+                    raise KKMConnectionErr
+                    break
             kkm.write(_atol_EOT)
         except OSError:  # for Linux
             import sys

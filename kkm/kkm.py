@@ -43,8 +43,8 @@ class KkmMeta(type):
 
     def __init__(cls, name, base, dict):
         if name != 'KKM':
-            print 'KkmMeta.__init__', name, cls
             cls.__registry[name] = cls
+            print 'registered kkm module =', name
 
     def autoCreate(cls, portParams=None, password=0):
         if not portParams:
@@ -57,7 +57,7 @@ class KkmMeta(type):
                 raise KKMCommonErr(u'Не поддерживаемая платформа')
         for kkm in cls.__registry.values():
             try:
-                print 'KkmMeta.autoCreate', kkm, portParams, password
+                logger.info('KkmMeta.autoCreate type=%s device=%s' % (kkm, str(portParams)))
                 return kkm(portParams, password)
             except KKMException:
                 pass
@@ -92,7 +92,7 @@ class KKM:
     _preTest   = 1 # Флаг выполнения команд в режиме регистрации
                    #   с предварительной проверкой исполнимости
 
-    def __init__(self, device, password):
+    def __init__(self, device, password=0):
         self._kkmPassword = password
         self.InitDevice(device)
         #print 'XMM __init__kkm 0: ', self._kkm
