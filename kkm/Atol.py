@@ -3,7 +3,6 @@
  Copyright (c) 2005, 2012
  @author: Marat Khayrullin <xmm.dev@gmail.com>
 '''
-import datetime
 
 '''
  Использованные документы:
@@ -20,7 +19,6 @@ import datetime
 '''
 
 import kkm
-from transCoding import cp866 as codeset
 from Exceptions import *
 
 from decimal import Decimal
