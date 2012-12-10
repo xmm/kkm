@@ -41,3 +41,34 @@ License
 эта библиотека распространяется под лицензией Apache-2.0. Подробности в файле LICENSE. 
 Предыдущая версия, расположенная по адресу http://code.google.com/p/kkm/ 
 распространялась под лицензией GPL-2.
+
+Installation
+------------
+     python setup.py
+
+Usage
+-----
+Инициализация фискальника::
+
+     import kkm
+     kkmDev = kkm.KkmMeta.autoCreate({'port': '/dev/ttyS0', 'baudrate': 115200})
+
+или выбрать конкретный драйвер::
+
+     kkm.Atol.AtolKKM({'port': '/dev/ttyS0', 'baudrate': 115200})
+
+Проведение оплаты со скидкой на весь чек::
+
+     kkmDev.setRegistrationMode(KKM_PASSWORD) 
+     kkmDev.OpenCheck() 
+     kkmDev.Sell(name.strip(), Decimal(price.strip()), Decimal(count.strip()), 0) 
+     kkmDev.Discount(discount, kkm.kkm_Check_dis) 
+     kkmDev.Payment(payment) 
+
+Вывод сообщения на дисплей покупателя::
+
+     kkmDev.PrintToDisplay('\x0C')
+     kkmDev.PrintToDisplay('')
+     max = kkmDev.getDisplayStringMax()
+     kkmDev.PrintToDisplay('Спасибо'.center(max))
+     kkmDev.PrintToDisplay('за покупку!'.center(max))

@@ -5,5 +5,5 @@
 .project
 .settings
 build
+dist
 kkm.egg-info
-.pydevproject
