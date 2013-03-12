@@ -956,7 +956,7 @@ class AtolKKM(kkm.KKM):
         else:
             print '??', mode, submode, printer, paper
             if (mode == 3 and submode == 0):
-                #return
+                # ZReport finished but an exception will raise
                 raise KKMFiscalMemoryOverflowErr
             if (printer):
                 raise KKMPrinterConnectionErr
