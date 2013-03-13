@@ -141,7 +141,7 @@ exceptionTable = {
     134: KKMLowPaymentErr,
     136: KKMNeedZReportErr,
     140: KKMCommonErr(u'Неверный пароль'),
-    143: KKMCommonErr(u'Обнуленная касса (повторное гашение не возможно)'),
+    143: KKMDoubleZReportErr,
     151: KKMCommonErr(u'Подсчет суммы сдачи не возможен'),
     154: KKMCommonErr(u'Чек закрыт - операция невозможна'),
     155: KKMCommonErr(u'Чек открыт - операция невозможна'),
@@ -937,24 +937,24 @@ class AtolKKM(kkm.KKM):
             self._atol_send_data(self._kkmPassword + _atol_ZReport_cmd)
             )
         mode, submode, printer, paper = self.GetCurrentState()
-        print '00', mode, submode, printer, paper
+        logger.debug(str(('00', mode, submode, printer, paper)))
         while (mode == 3 and submode == 2):
-            print '32-0'
+            logger.debug(str(('32-0')))
             time.sleep(_atol_Report_timeout)
-            print '32-1'
+            logger.debug(str(('32-1')))
             mode, submode, printer, paper = self.GetCurrentState()
-            print '32-2', mode, submode, printer, paper
+            logger.debug(str(('32-2', mode, submode, printer, paper)))
         if (mode == 7 and submode == 1):
-            print '71-0'
+            logger.debug(str(('71-0')))
             while (mode == 7 and submode == 1):
-                print '71-1'
+                logger.debug(str(('71-1')))
                 time.sleep(_atol_Report_timeout)
-                print '71-2'
+                logger.debug(str(('71-2')))
                 mode, submode, printer, paper = self.GetCurrentState()
-                print '71-3', mode, submode, printer, paper
+                logger.debug(str(('71-3', mode, submode, printer, paper)))
             return
         else:
-            print '??', mode, submode, printer, paper
+            logger.debug(str(('??', mode, submode, printer, paper)))
             if (mode == 3 and submode == 0):
                 # ZReport finished but an exception will raise
                 raise KKMFiscalMemoryOverflowErr
@@ -1064,11 +1064,11 @@ class AtolKKM(kkm.KKM):
                     raise KKMNotImplementedErr
                 if (bitmask != None):
                     oldValue = ord(self.readTable(table, row, field))
-                    print 'P0 %s %s' % (oldValue, bin(oldValue))
+                    logger.debug(str(('P0 %s %s' % (oldValue, bin(oldValue)))))
                     #oldValue = self.atol2number(oldValue)
-                    print 'P1 %s | (%s & ~%s), %s' % (bin(value), bin(oldValue), bin(bitmask), bin(oldValue & ~bitmask))
+                    logger.debug(str(('P1 %s | (%s & ~%s), %s' % (bin(value), bin(oldValue), bin(bitmask), bin(oldValue & ~bitmask)))))
                     value |= (oldValue & ~bitmask)
-                    print 'P2', bin(value), chr(value), 'AA'
+                    logger.debug(str(('P2', bin(value), chr(value), 'AA')))
                     value = chr(value)
                     #value = self.number2atol(value, length * 2)
                 elif (rtype == 'string'):

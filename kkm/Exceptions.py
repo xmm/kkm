@@ -24,7 +24,8 @@ kkmLowPaymentError        = 17
 kkmFiscalMemoryOverflowError = 18
 kkmIncorectModeError      = 19
 kkmReportError            = 20
-kkmNeedZReportError      = 21
+kkmNeedZReportError       = 21
+kkmDoubleZReportError     = 22
 
 
 class KKMException(Exception):
@@ -178,3 +179,8 @@ class KKMReportErr(KKMException):
 class KKMNeedZReportErr(KKMException):
     _stdMsg = u'Смена превысила 24 часа'
     _stdCode = kkmNeedZReportError
+
+
+class KKMDoubleZReportErr(KKMException):
+    _stdMsg = u'Обнуленная касса (повторное гашение не возможно)'
+    _stdCode = kkmDoubleZReportError
