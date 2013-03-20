@@ -36,22 +36,19 @@ _atol_DLE = '\x10'  # ^Q Экранирование управ. символов
 _atol_NAK = '\x15'  # ^U Отрицание
 _atol_FS  = '\x1C'  # ^] Разделитель полей
 
-_atol_CON_attempt  = 20   # Кол-во
-_atol_ANS_attempt  = 20   # Кол-во
-_atol_ENQ_attempt  = 5    # Кол-во проверок готовности ККМ
+_atol_CON_attempt  = 100  # Ожидание первого ACK
+_atol_ANS_attempt  = 100  # Ожидание STX
+_atol_STX_attempt  = 100  # Кол-во попыток прочитать STX байт
+_atol_ENQ_attempt  = 10   # Кол-во проверок готовности ККМ # по стандарту - 5, но ZReport подает на PayVKP-80K
 _atol_ACK_attempt  = 10
-_atol_ACK_timeout  = 5    # Время ожидания между проверками готовности ККМ
-_atol_DLE_timeout  = 1    # Время ожидания ответа на DLE запрос (тек. статус)
 _atol_T1_timeout   = 0.5  # ?Стандартное время ожидания получения 1го байта
 _atol_T2_timeout   = 20   # Время ожидания состояния "Идет передача ответа"
 _atol_T3_timeout   = 0.5
 _atol_T4_timeout   = 0.5
-_atol_T5_timeout   = 20   # Время ожидания состояния "Готов к передаче ответа"
+_atol_T5_timeout   = 10   # Время ожидания состояния "Готов к передаче ответа"
 _atol_T6_timeout   = 0.5
 _atol_T7_timeout   = 0.5
 _atol_T8_timeout   = 1
-_atol_DAT_timeout  = 5
-_atol_STX_attempt  = 100  # Кол-во попыток прочитать STX байт
 
 _atol_PASSWD_len   = 4      # Длина пароля
 _atol_ANSWER_len   = 10240  # Max длина ответа от ККМ
@@ -82,6 +79,30 @@ _atol_ReadTable_cmd       = 'F'
 _atol_Programming_cmd     = 'P'
 _atol_ZReportToMem_cmd    = '\xB4'
 _atol_ZReportFromMem_cmd  = '\xB5'
+
+# <1>стр 13-14
+_atol_T5_timeout_exception = {
+    _atol_Payment_cmd: 20,
+    _atol_ZReport_cmd: 40,
+    0x62: 50,
+    0x6b: 10,
+    0x8d: 20,
+    0x8e: 20,
+    0x91: 45,
+    0xa8: 120,
+    0xa9: 120,
+    0xa6: 50,
+    0xa7: 20,
+    0xaa: 120,
+    0xab: 120,
+    0xac: 120,
+    0xad: 120,
+}
+
+
+def _get_T5_timeout(cmd):
+    return _atol_T5_timeout_exception.get(cmd, _atol_T5_timeout)
+
 
 _atol_Select_mode         = 0
 _atol_Registration_mode   = 1
@@ -156,13 +177,13 @@ exceptionTable = {
 def checkException(ans):
     try:
         if (ans[0] != 'U'):
-            logger.error(str(KKMUnknownAnswerErr))
+            logger.error(unicode(KKMUnknownAnswerErr))
             raise KKMUnknownAnswerErr
         else:
             raiseException(ord(ans[1]))
             return ans
     except IndexError:
-        logger.error(str(KKMUnknownAnswerErr))
+        logger.error(unicode(KKMUnknownAnswerErr))
         raise KKMUnknownAnswerErr
 
 
@@ -244,67 +265,76 @@ class AtolKKM(kkm.KKM):
     def _atol_send_data(self, data):
         kkm = self._kkm
 
-        logger.debug('data: %s len: %d', data, len(data))
+        cmd = data[self._passwordLen / 2]
+        logger.debug('cmd: 0x%02x(%s) data: %s len: %d', ord(cmd), cmd, data, len(data))
         data = _escaping(data) + _atol_ETX
         crc = _calc_crc(data)
-        data = _atol_STX + data + chr(crc)   # Есть ли у Феликса max длина буфера?
+        data = _atol_STX + data + chr(crc)
         logger.debug('escaped data: %s len: %d crc: %d', data, len(data), crc)
 
         try:
             ### Активный передатчик #######################
-            for i in range(_atol_CON_attempt):
+            for unused in range(_atol_CON_attempt):
                 is_answered = False
-                for j in range(_atol_ENQ_attempt):
+                for unused in range(_atol_ENQ_attempt):
                     kkm.write(_atol_ENQ)
                     self._set_readtimeout(_atol_T1_timeout)
                     ch = kkm.read(1)
                     if ch == '':
+                        logger.debug('No data')
                         continue
                     is_answered = True
                     if (ch == _atol_NAK):
+                        logger.debug('NAK')
                         time.sleep(_atol_T1_timeout)
                     elif (ch == _atol_ENQ):
+                        logger.debug('ENQ')
                         time.sleep(_atol_T7_timeout)
                         break
-                    elif (ch == _atol_ACK):
+                    elif (ch != _atol_ACK):
+                        logger.debug('received garbage')
+                        break
+                    else:  # (ch == _atol_ACK):
                         for k in range(_atol_ACK_attempt):
                             kkm.write(data)
                             self._set_readtimeout(_atol_T3_timeout)
                             ch = kkm.read(1)
                             #print "2[%s]" %(ch)
                             if (ch == ''):
-                                time.sleep(0.5)
+                                #time.sleep(0.5)
                                 continue
                             elif (ch != _atol_ACK or (ch == _atol_ENQ and k == 1)):
+                                logger.debug('(ch != _atol_ACK(%s) or (ch == _atol_ENQ and k == 1(%d)))', k, ch != _atol_ACK)
                                 continue
                             elif (ch == _atol_ACK or (ch == _atol_ENQ and k > 1)):
+                                logger.debug('(ch == _atol_ACK(%s) or (ch == _atol_ENQ and k > 1(%d)))', k, ch == _atol_ACK)
                                 if (ch == _atol_ACK):
                                     kkm.write(_atol_EOT)
-                                ### Активный приемник #######################
-                                if (ch == _atol_ACK):
-                                    for unused in range(_atol_ANS_attempt):
-                                        self._set_readtimeout(_atol_T5_timeout)
+############################### Активный приемник #######################
+                                    for unused in range(_atol_CON_attempt):
+                                        logger.debug('cmd 0x%02x(%s), T5 timeout %d', ord(cmd), cmd, _get_T5_timeout(cmd))
+                                        self._set_readtimeout(_get_T5_timeout(cmd))
                                         ch = kkm.read(1)
                                         #print "3[%s]" %(ch)
                                         if (ch == ''):
-                                            logger.error(str(KKMNoAnswerErr))
+                                            logger.error('%s: Failed %s attempts of receiving ENQ', unicode(KKMNoAnswerErr), _atol_CON_attempt)
                                             raise KKMNoAnswerErr
                                         elif (ch == _atol_ENQ):
                                             break
                                 ch = ''
                                 for unused in range(_atol_ACK_attempt):
                                     kkm.write(_atol_ACK)
-                                    for unused in range(_atol_ANS_attempt):
-                                        if (ch != _atol_STX):
-                                            self._set_readtimeout(_atol_T2_timeout)
-                                            ch = kkm.read(1)
-                                            #print "4[%s]" %(ch)
+                                    for wait_stx in range(_atol_STX_attempt):
+                                        self._set_readtimeout(_atol_T2_timeout)
+                                        ch = kkm.read(1)
                                         if (ch == ''):
-                                            logger.error(str(KKMNoAnswerErr))
+                                            logger.error('%s: No data received on ACK', unicode(KKMNoAnswerErr))
                                             raise KKMNoAnswerErr
                                         elif (ch == _atol_ENQ):
                                             break
-                                        elif (ch == _atol_STX):
+                                        elif (ch != _atol_STX):
+                                            continue
+                                        else:  # (ch == _atol_STX):
                                             answer = ''
                                             DLE_Flag = 0
                                             while (1 == 1):  # Длину буфера проверять не надо
@@ -358,35 +388,33 @@ class AtolKKM(kkm.KKM):
                                                         return _unescaping(answer)
                                                     else:
                                                         break
-                                        else:
-                                            continue
+                                    if wait_stx >= _atol_STX_attempt - 1:
+                                        raise KKMNoAnswerErr ####
                                 kkm.write(_atol_EOT)
-                                logger.error(str(KKMNoAnswerErr))
+                                logger.error('%s: Failed %s attempts of sending ACK' % (unicode(KKMNoAnswerErr), _atol_ACK_attempt))
                                 raise KKMNoAnswerErr
                         kkm.write(_atol_EOT)
-                        logger.error(str(KKMConnectionErr))
+                        logger.error('%s: Failed %s attempts of sending data' % (unicode(KKMNoAnswerErr), _atol_ACK_attempt))
                         raise KKMConnectionErr
-                    else:
-                        break
                 if not is_answered:
                     kkm.write(_atol_EOT)
-                    logger.error(str(KKMConnectionErr))
+                    logger.error('%s: Failed %s attempts of sending ENQ' % (unicode(KKMNoAnswerErr), _atol_ENQ_attempt))
                     raise KKMConnectionErr
                     break
             kkm.write(_atol_EOT)
-        except OSError:  # for Linux
+        except OSError as e:  # for Linux
             import sys
             exc = sys.exc_info()
             if exc[1].errno == 19:
-                logger.error(str(KKMNoDeviceErr))
+                logger.error('(1) %s' % unicode(KKMNoDeviceErr))
                 raise KKMNoDeviceErr
             else:
-                logger.error(str(KKMConnectionErr))
+                logger.error('(2) %s' % unicode(e))
                 raise KKMConnectionErr
-        except Exception:  # win32file raise common exception, not OSError as Linux
-            logger.error(str(KKMConnectionErr))
+        except Exception as e:  # win32file raise common exception, not OSError as Linux
+            logger.error('(2) %s' % unicode(e))
             raise KKMConnectionErr
-        logger.error(str(KKMConnectionErr))
+        logger.error('(3) %s' % unicode(KKMConnectionErr))
         raise KKMConnectionErr
 
     def str2atol(self, txt, length):
@@ -452,11 +480,11 @@ class AtolKKM(kkm.KKM):
         if (width == None):
             width = self._moneyWidth
         elif (width > self._moneyWidth):
-            logger.error(str(KKMWrongMoneyErr(u'Затребована ширина превышающая максимально допустимое значение')))
+            logger.error(unicode(KKMWrongMoneyErr(u'Затребована ширина превышающая максимально допустимое значение')))
             raise KKMWrongMoneyErr(u'Затребована ширина превышающая максимально допустимое значение')
         money = round(money * self._moneyPrecision)
         if (money > self._moneyMax):
-            logger.error(str(KKMWrongMoneyErr(u'Число типа "money" превышает максимально допустимое значение')))
+            logger.error(unicode(KKMWrongMoneyErr(u'Число типа "money" превышает максимально допустимое значение')))
             raise KKMWrongMoneyErr(u'Число типа "money" превышает максимально допустимое значение')
         return self.number2atol(long(money), width)
 
@@ -474,11 +502,11 @@ class AtolKKM(kkm.KKM):
         if (width == None):
             width = self._quantityWidth
         elif (width > self._quantityWidth):
-            logger.error(str(KKMWrongQuantityErr(u'Затребована ширина превышающая максимально допустимое значение')))
+            logger.error(unicode(KKMWrongQuantityErr(u'Затребована ширина превышающая максимально допустимое значение')))
             raise KKMWrongQuantityErr(u'Затребована ширина превышающая максимально допустимое значение')
         quantity = round(quantity * self._quantityPrecision)  # Марсель! Округлять или срезать ???
         if (quantity > self._quantityMax):
-            logger.error(str(KKMWrongQuantityErr(u'Число типа "quantity" превышает максимально допустимое значение')))
+            logger.error(unicode(KKMWrongQuantityErr(u'Число типа "quantity" превышает максимально допустимое значение')))
             raise KKMWrongQuantityErr(u'Число типа "quantity" превышает максимально допустимое значение')
         quantity = str(quantity)
         dot = string.find(quantity, '.')
