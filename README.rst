@@ -8,6 +8,8 @@ Contributors
 - Marat Khayrullin <xmm.dev@gmail.com>
 - https://github.com/xmm/kkm/
 
+Посмотрите на форк https://github.com/aborche/kkm
+
 Introduction
 ------------
 Библиотека, написанная на языке python, для работы с 
